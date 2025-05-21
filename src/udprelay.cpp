@@ -15,13 +15,11 @@
 #include <condition_variable>
 #include <thread>
 
-#include <boost/thread.hpp>
-
 #define to_millis_double(t) (std::chrono::duration_cast<std::chrono::duration<double, std::chrono::milliseconds::period> >(t).count())
 #define DIV_CEIL(a, b) (((a) + (b) - 1) / (b))
 
 static CService TRUSTED_PEER_DUMMY;
-static std::map<std::pair<uint64_t, CService>, std::shared_ptr<PartialBlockData> > mapPartialBlocks;
+static std::map<std::pair<uint64_t, CService>, std::shared_ptr<PartialBlockData>> mapPartialBlocks;
 static std::unordered_set<uint64_t> setBlocksRelayed;
 // In cases where we receive a block without its previous block, or a block
 // which is already (to us) an orphan, we will not get a UDPRelayBlock
@@ -30,11 +28,11 @@ static std::unordered_set<uint64_t> setBlocksRelayed;
 // set here.
 static std::set<std::pair<uint64_t, CService>> setBlocksReceived;
 
-static std::map<std::pair<uint64_t, CService>, std::shared_ptr<PartialBlockData> >::iterator RemovePartialBlock(std::map<std::pair<uint64_t, CService>, std::shared_ptr<PartialBlockData> >::iterator it) {
+static std::map<std::pair<uint64_t, CService>, std::shared_ptr<PartialBlockData>>::iterator RemovePartialBlock(std::map<std::pair<uint64_t, CService>, std::shared_ptr<PartialBlockData>>::iterator it) {
     uint64_t hash_prefix = it->first.first;
     std::lock_guard<std::mutex> lock(it->second->state_mutex);
     // Note that we do not modify nodesWithChunksAvailableSet, as it might be "read-only" due to currentlyProcessing
-    for (const std::pair<CService, std::pair<uint32_t, uint32_t> >& node : it->second->nodesWithChunksAvailableSet) {
+    for (const std::pair<CService, std::pair<uint32_t, uint32_t>>& node : it->second->nodesWithChunksAvailableSet) {
         std::map<CService, UDPConnectionState>::iterator nodeIt = mapUDPNodes.find(node.first);
         if (nodeIt == mapUDPNodes.end())
             continue;
@@ -53,7 +51,7 @@ static void RemovePartialBlock(const std::pair<uint64_t, CService>& key) {
 }
 
 static void RemovePartialBlocks(uint64_t hash_prefix) {
-    std::map<std::pair<uint64_t, CService>, std::shared_ptr<PartialBlockData> >::iterator it = mapPartialBlocks.lower_bound(std::make_pair(hash_prefix, TRUSTED_PEER_DUMMY));
+    std::map<std::pair<uint64_t, CService>, std::shared_ptr<PartialBlockData>>::iterator it = mapPartialBlocks.lower_bound(std::make_pair(hash_prefix, TRUSTED_PEER_DUMMY));
     while (it != mapPartialBlocks.end() && it->first.first == hash_prefix)
         it = RemovePartialBlock(it);
 }
@@ -224,7 +222,7 @@ static void SendLimitedDataChunks(const uint256& blockhash, UDPMessageType type,
     SendMessageData(msg, data, std::numeric_limits<size_t>::max(), hash_prefix, 3); // Send 3 packets to each peer, in RR
 }
 
-static boost::thread *process_block_thread = NULL;
+static std::thread *process_block_thread = NULL;
 void UDPRelayBlock(const CBlock& block) {
     std::chrono::steady_clock::time_point start;
     const bool fBench = LogAcceptCategory(BCLog::BENCH);
@@ -240,7 +238,7 @@ void UDPRelayBlock(const CBlock& block) {
         bool skipEncode = false;
         std::unique_lock<std::mutex> partial_block_lock;
         std::shared_ptr<PartialBlockData> partial_block_ptr;
-        bool inUDPProcess = process_block_thread && boost::this_thread::get_id() == process_block_thread->get_id();
+        bool inUDPProcess = process_block_thread && std::this_thread::get_id() == process_block_thread->get_id();
         if (inUDPProcess) {
             lock.lock();
 
@@ -482,9 +480,9 @@ void UDPFillMessagesFromBlock(const CBlock& block, std::vector<UDPMessage>& msgs
 static std::mutex block_process_mutex;
 static std::condition_variable block_process_cv;
 static std::atomic_bool block_process_shutdown(false);
-static std::vector<std::pair<std::pair<uint64_t, CService>, std::shared_ptr<PartialBlockData> > > block_process_queue;
+static std::vector<std::pair<std::pair<uint64_t, CService>, std::shared_ptr<PartialBlockData>>> block_process_queue;
 
-static void DoBackgroundBlockProcessing(const std::pair<std::pair<uint64_t, CService>, std::shared_ptr<PartialBlockData> >& block_data) {
+static void DoBackgroundBlockProcessing(const std::pair<std::pair<uint64_t, CService>, std::shared_ptr<PartialBlockData>>& block_data) {
     // If we just blindly call ProcessNewBlock here, we have a cs_main/cs_mapUDPNodes inversion
     // (actually because fucking P2P code calls everything with cs_main already locked).
     // Instead we pass the processing back to ProcessNewBlockThread without cs_mapUDPNodes
@@ -504,7 +502,7 @@ static void ProcessBlockThread() {
         if (block_process_shutdown)
             return;
         // To avoid vector re-allocation we pop_back, so its secretly a stack, shhhhh, dont tell anyone
-        std::pair<std::pair<uint64_t, CService>, std::shared_ptr<PartialBlockData> > process_block = block_process_queue.back();
+        std::pair<std::pair<uint64_t, CService>, std::shared_ptr<PartialBlockData>> process_block = block_process_queue.back();
         PartialBlockData& block = *process_block.second;
         block_process_queue.pop_back();
         process_lock.unlock();
@@ -633,13 +631,13 @@ static void ProcessBlockThread() {
                     const CBlock& decoded_block = *pdecoded_block;
                     if (fBench) {
                         uint32_t total_chunks_recvd = 0, total_chunks_used = 0;
-                        std::map<CService, std::pair<uint32_t, uint32_t> >& chunksProvidedByNode = block.nodesWithChunksAvailableSet;
-                        for (const std::pair<CService, std::pair<uint32_t, uint32_t> >& provider : chunksProvidedByNode) {
+                        std::map<CService, std::pair<uint32_t, uint32_t>>& chunksProvidedByNode = block.nodesWithChunksAvailableSet;
+                        for (const std::pair<CService, std::pair<uint32_t, uint32_t>>& provider : chunksProvidedByNode) {
                             total_chunks_recvd += provider.second.second;
                             total_chunks_used += provider.second.first;
                         }
                         LogPrintf("UDP: Block %s reconstructed from %s with %u chunks in %lf ms (%u recvd from %u peers)\n", decoded_block.GetHash().ToString(), block.nodeHeaderRecvd.ToString(), total_chunks_used, to_millis_double(std::chrono::steady_clock::now() - block.timeHeaderRecvd), total_chunks_recvd, chunksProvidedByNode.size());
-                        for (const std::pair<CService, std::pair<uint32_t, uint32_t> >& provider : chunksProvidedByNode)
+                        for (const std::pair<CService, std::pair<uint32_t, uint32_t>>& provider : chunksProvidedByNode)
                             LogPrintf("UDP:    %u/%u used from %s\n", provider.second.first, provider.second.second, provider.first.ToString());
                     }
 
@@ -739,7 +737,7 @@ static void ProcessBlockThread() {
 }
 
 void BlockRecvInit() {
-    process_block_thread = new boost::thread(boost::bind(&TraceThread<void (*)()>, "udpprocess", &ProcessBlockThread));
+    process_block_thread = new std::thread(&TraceThread<void (*)()>, "udpprocess", &ProcessBlockThread);
 }
 
 void BlockRecvShutdown() {
@@ -894,7 +892,7 @@ bool HandleBlockTxMessage(UDPMessage& msg, size_t length, const CService& node, 
             if (state.chunks_avail.size() > 1 && !state.connection.fTrusted) {
                 // Non-trusted nodes can only be forwarding up to 2 blocks at a time
                 assert(state.chunks_avail.size() == 2);
-                auto first_partial_block_it  = mapPartialBlocks.find(std::make_pair(state.chunks_avail. begin()->first, node));
+                auto first_partial_block_it  = mapPartialBlocks.find(std::make_pair(state.chunks_avail.begin()->first, node));
                 assert(first_partial_block_it != mapPartialBlocks.end());
                 auto second_partial_block_it = mapPartialBlocks.find(std::make_pair(state.chunks_avail.rbegin()->first, node));
                 assert(second_partial_block_it != mapPartialBlocks.end());
@@ -912,8 +910,8 @@ bool HandleBlockTxMessage(UDPMessage& msg, size_t length, const CService& node, 
             chunks_avail_it = state.chunks_avail.emplace(std::piecewise_construct,
                                                          std::forward_as_tuple(hash_prefix),
                                                          std::forward_as_tuple(they_have_block, header_data_chunks)
-                                                 ).first;
-        } else // Probably stale (ie we just finished reconstructing
+                                                ).first;
+        } else // Probably stale (ie we just finished reconstructing)
             return true;
     }
 
@@ -934,7 +932,7 @@ bool HandleBlockTxMessage(UDPMessage& msg, size_t length, const CService& node, 
     }
 
     bool new_block = false;
-    std::map<std::pair<uint64_t, CService>, std::shared_ptr<PartialBlockData> >::iterator it = mapPartialBlocks.find(hash_peer_pair);
+    std::map<std::pair<uint64_t, CService>, std::shared_ptr<PartialBlockData>>::iterator it = mapPartialBlocks.find(hash_peer_pair);
     if (it == mapPartialBlocks.end()) {
         if ((msg.header.msg_type & UDP_MSG_TYPE_TYPE_MASK) == MSG_TYPE_BLOCK_HEADER)
             it = mapPartialBlocks.insert(std::make_pair(std::make_pair(hash_prefix, state.connection.fTrusted ? TRUSTED_PEER_DUMMY : node), std::make_shared<PartialBlockData>(node, msg, packet_process_start))).first;
@@ -985,7 +983,7 @@ bool HandleBlockTxMessage(UDPMessage& msg, size_t length, const CService& node, 
     if (block.is_decodeable || block.currentlyProcessing || block.is_header_processing)
         return true;
 
-    std::map<CService, std::pair<uint32_t, uint32_t> >::iterator usefulChunksFromNodeIt =
+    std::map<CService, std::pair<uint32_t, uint32_t>>::iterator usefulChunksFromNodeIt =
             block.nodesWithChunksAvailableSet.insert(std::make_pair(node, std::make_pair(0, 0))).first;
     usefulChunksFromNodeIt->second.second++;
 
