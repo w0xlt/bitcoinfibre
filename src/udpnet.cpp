@@ -28,8 +28,6 @@
 
 #include <event2/event.h>
 
-#include <boost/thread.hpp>
-
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -76,15 +74,16 @@ static void FillChecksum(uint64_t magic, UDPMessage& msg, const unsigned int len
 
     for (unsigned int i = 0; i < length - 16; i += 8) {
         for (unsigned int j = 0; j < 8 && i + j < length - 16; j++) {
-            ((unsigned char*)&msg.header.msg_type) [i+j] ^= ((unsigned char*)&msg.header.chk1)[j];
+            ((unsigned char*)&msg.header.msg_type)[i+j] ^= ((unsigned char*)&msg.header.chk1)[j];
         }
     }
 }
+
 static bool CheckChecksum(uint64_t magic, UDPMessage& msg, const unsigned int length) {
     assert(length <= sizeof(UDPMessage));
     for (unsigned int i = 0; i < length - 16; i += 8) {
         for (unsigned int j = 0; j < 8 && i + j < length - 16; j++) {
-            ((unsigned char*)&msg.header.msg_type) [i+j] ^= ((unsigned char*)&msg.header.chk1)[j];
+            ((unsigned char*)&msg.header.msg_type)[i+j] ^= ((unsigned char*)&msg.header.chk1)[j];
         }
     }
 
@@ -98,7 +97,6 @@ static bool CheckChecksum(uint64_t magic, UDPMessage& msg, const unsigned int le
     poly1305_auth(hash, (unsigned char*)&msg.header.msg_type, length - 16, key);
     return !memcmp(&msg.header.chk1, hash, sizeof(msg.header.chk1)) && !memcmp(&msg.header.chk2, hash + 8, sizeof(msg.header.chk2));
 }
-
 
 
 /**
@@ -122,8 +120,8 @@ static void ThreadRunLocalReadEventLoop() { do_read_local_messages(); }
 static void read_socket_func(evutil_socket_t fd, short event, void* arg);
 static void timer_func(evutil_socket_t fd, short event, void* arg);
 
-static boost::thread *udp_read_thread = NULL, *udp_local_read_thread = NULL;
-static std::vector<boost::thread> udp_write_threads;
+static std::thread *udp_read_thread = NULL, *udp_local_read_thread = NULL;
+static std::vector<std::thread> udp_write_threads;
 
 static void OpenLocalDeviceConnection(bool fWrite);
 static void StartLocalBackfillThread();
@@ -256,7 +254,8 @@ bool InitializeUDPConnections() {
     evtimer_add(timer_event, &timer_interval);
 
     send_messages_init(group_list, local_write_device);
-    udp_write_threads.emplace_back(boost::bind(&TraceThread<boost::function<void ()> >, "udpwrite", &ThreadRunWriteEventLoop));
+    udp_write_threads.emplace_back(TraceThread<void(*)()>, 
+                                   "udpwrite", ThreadRunWriteEventLoop);
 
     AddConfAddedConnections();
 
@@ -268,12 +267,14 @@ bool InitializeUDPConnections() {
 
     if (gArgs.IsArgSet("-fecreaddevice")) {
         OpenLocalDeviceConnection(false);
-        udp_local_read_thread = new boost::thread(boost::bind(&TraceThread<void (*)()>, "udpreadlocal", &ThreadRunLocalReadEventLoop));
+        udp_local_read_thread = new std::thread(TraceThread<void(*)()>, 
+                                                "udpreadlocal", ThreadRunLocalReadEventLoop);
     }
 
     BlockRecvInit();
 
-    udp_read_thread = new boost::thread(boost::bind(&TraceThread<void (*)()>, "udpread", &ThreadRunReadEventLoop));
+    udp_read_thread = new std::thread(TraceThread<void(*)()>, 
+                                      "udpread", ThreadRunReadEventLoop);
 
     return true;
 }
@@ -303,7 +304,7 @@ void StopUDPConnections() {
 
     send_messages_flush_and_break();
 
-    for (boost::thread& t : udp_write_threads)
+    for (std::thread& t : udp_write_threads)
         t.join();
     udp_write_threads.clear();
 
@@ -312,7 +313,6 @@ void StopUDPConnections() {
     event_free(timer_event);
     event_base_free(event_base_read);
 }
-
 
 
 /**
@@ -575,7 +575,7 @@ static void timer_func(evutil_socket_t fd, short event, void* arg) {
     }
 
     for (std::map<CService, UDPConnectionState>::iterator it = mapUDPNodes.begin(); it != mapUDPNodes.end();) {
-        boost::this_thread::interruption_point();
+        // boost::this_thread::interruption_point(); // Removed: not needed with std::thread
 
         if (it->second.connection.connection_type != UDP_CONNECTION_TYPE_NORMAL) {
             it++;
@@ -667,7 +667,7 @@ struct PerGroupMessageQueue {
     }
     uint64_t bw;
     PerGroupMessageQueue() : bw(0) {}
-    PerGroupMessageQueue(PerGroupMessageQueue&& q) =delete;
+    PerGroupMessageQueue(PerGroupMessageQueue&& q) = delete;
 };
 static std::vector<PerGroupMessageQueue> messageQueues;
 static const size_t LOCAL_RECEIVE_GROUP = (size_t)-1;
@@ -848,7 +848,8 @@ static void do_send_messages() {
 
 static void StartLocalBackfillThread() {
     assert(LOCAL_SEND_GROUP < messageQueues.size());
-    boost::thread(boost::bind(&TraceThread<boost::function<void ()> >, "udpbackfill", [] {
+    std::thread(TraceThread<void(*)()>,
+                "udpbackfill", []() {
         while (IsInitialBlockDownload() && !send_messages_break)
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
@@ -931,7 +932,7 @@ static void StartLocalBackfillThread() {
                 SendMessage(msg, sizeof(UDPMessageHeader) + MAX_UDP_MESSAGE_LENGTH, queue, queue.buffs[2], LOCAL_WRITE_DEVICE_SERVICE, LOCAL_DEVICE_CHECKSUM_MAGIC);
             }
         }
-    })).detach();
+    }).detach();
 }
 
 static std::tuple<int64_t, bool, std::string> get_local_device() {
@@ -978,7 +979,6 @@ static void send_messages_flush_and_break() {
     send_messages_break = true;
     send_messages_wake_cv.notify_all();
 }
-
 
 
 /**
